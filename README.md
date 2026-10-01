@@ -200,6 +200,24 @@ Comma-separated address strings also work (useful when called from a
   `-CredentialPath` or `-VaultName`/`-SecretName` the script exits with
   `1` before loading any credential, because the password would travel
   in clear text. There is no override switch.
+
+#### Internal Exchange-style relays: which port and TLS mode?
+
+A typical internal SMTP relay behaves like this (verified against an
+anonymous Exchange-based relay):
+
+| Port | `-TlsMode` | Outcome |
+|---|---|---|
+| 25 | `None` | Works. This is the anonymous relay port; use `-NoAuth`. |
+| 25 | `StartTls` | Fails with `Server does not support secure connections` (port 25 does not offer STARTTLS). |
+| 587 | `None` | Fails with `5.7.57 ... not authenticated to send anonymous mail`. |
+| 587 | `StartTls` | Fails with `The remote certificate is invalid` if the certificate does not match the name you connect to (for example a DNS alias) or is not trusted. |
+
+Port 587 is the authenticated submission port, so it does not accept
+anonymous mail even when the certificate is fine. For an anonymous internal
+relay use port 25 with `-TlsMode None -NoAuth`. The script never bypasses
+certificate validation; if you need STARTTLS, connect using the name on the
+server's certificate and make sure the issuing CA is trusted on the client.
 - Credentials created with `Set-RelayCredential.ps1` are ACS credentials.
   Do not point them at other servers via `-SmtpServer`; the server would
   receive your ACS SMTP username and client secret.
@@ -326,6 +344,8 @@ if %ERRORLEVEL% neq 0 (
 | `Could not read secrets from Key Vault` | No authenticated Az session in the current process, or the identity lacks `get` permission on the secrets. Run `Connect-AzAccount` (or verify the managed identity/service principal) and check the vault's access policy/RBAC. |
 | `Az.KeyVault module not installed` | Run `Install-Module Az.KeyVault -Scope CurrentUser`. |
 | `Server does not support secure connections` | The target server does not offer STARTTLS on that port (typical for internal relays on port 25). Use a port that offers STARTTLS, or, for an anonymous internal relay, `-TlsMode None -NoAuth`. |
+| `The remote certificate is invalid according to the validation procedure` | STARTTLS worked, but the server certificate does not match the host name used in `-SmtpServer` (e.g. a DNS alias) or its CA is not trusted on this machine. Connect using the certificate's name or install the CA; certificate checks cannot be skipped. |
+| `5.7.57 ... not authenticated to send anonymous mail` | The port (typically 587) only accepts authenticated clients. Use the anonymous relay port (usually 25) with `-TlsMode None -NoAuth`, or supply a credential. |
 | `-TlsMode None cannot be combined with a credential` | Plain SMTP would send the password in clear text. Use STARTTLS (the default) or `-NoAuth`. |
 | `Invalid -SmtpServer value` | A `host:port` value with a non-numeric or out-of-range port. Fix the value or pass `-Port` separately. |
 | `Give the port either in -SmtpServer` | Both `host:port` and `-Port` were given. Use only one. |
