@@ -1,16 +1,19 @@
 <#
 .SYNOPSIS
-    Dynamic blat.exe replacement built on Azure Communication Services (ACS)
-    SMTP relay, with a choice of two credential storage back ends.
+    Dynamic blat.exe replacement that sends mail through Azure Communication
+    Services (ACS) SMTP relay by default, or through any SMTP server via
+    -SmtpServer / -Port / -TlsMode / -NoAuth.
 
 .DESCRIPTION
-    Sends an email via ACS SMTP (smtp.azurecomm.net). All message data
-    (sender, recipients, subject, body, attachments) are passed as
-    parameters instead of being hard-coded, and the credential is never
-    stored in plain text inside this script.
+    Sends an email via ACS SMTP (smtp.azurecomm.net:587, STARTTLS) by default.
+    Any other SMTP server can be used with -SmtpServer, -Port, -TlsMode and
+    -NoAuth (for example an internal relay on port 25 without TLS or
+    authentication). All message data (sender, recipients, subject, body,
+    attachments) are passed as parameters instead of being hard-coded, and
+    the credential is never stored in plain text inside this script.
 
-    Two credential sources are supported, chosen by which parameter set you
-    use (created with Set-AcsSmtpSecret.ps1):
+    Three authentication modes are supported, chosen by which parameter set
+    you use (credentials are created with Set-AcsSmtpSecret.ps1):
 
       ClixmlFile  -CredentialPath <file>
                   Reads a DPAPI-encrypted credential file created with
@@ -27,14 +30,36 @@
                   machine/account with read access to the vault can send
                   mail without a local credential file.
 
+      Anonymous   -NoAuth
+                  No credential is loaded or sent. For relays that accept
+                  anonymous or IP-authenticated mail. Cannot be combined
+                  with the ClixmlFile or KeyVault parameters.
+
+    Implicit TLS (SMTPS, port 465) is not supported by System.Net.Mail.
+
     Exit codes match blat.exe (0 = success, 1 = failure) so existing batch
     files / scheduled tasks that check %ERRORLEVEL% keep working unchanged.
 
 .PARAMETER SmtpServer
     SMTP host. Default: smtp.azurecomm.net
+    Alias: -MailServer. A single "host:port" value (blat style) is split
+    into host and port; giving both host:port and -Port is an error.
+    For IPv6 literals use -Port.
 
 .PARAMETER Port
     SMTP port. Default: 587 (STARTTLS)
+
+.PARAMETER TlsMode
+    StartTls (default): upgrade the connection with STARTTLS (TLS 1.2, and
+    TLS 1.3 where the platform offers it). None: plain SMTP without TLS, e.g.
+    an internal relay on port 25. None cannot be combined with a credential
+    (ClixmlFile or KeyVault set): the script fails with exit code 1 before
+    loading the credential, because the password would be sent in clear
+    text. Use None only together with -NoAuth.
+
+.PARAMETER NoAuth
+    (Anonymous set) Send without authentication. Cannot be combined with
+    -CredentialPath, -VaultName, -SecretName or -UsernameSecretName.
 
 .PARAMETER CredentialPath
     (ClixmlFile set) Path to the encrypted credential file.
@@ -50,36 +75,38 @@
     Defaults to "<SecretName>-Username".
 
 .PARAMETER From
-    Sender address.
+    Sender address. Alias: -MailFrom.
 
 .PARAMETER To
     One or more recipient addresses. Accepts an array or a single
     comma-separated string (useful when called from a batch file).
+    Alias: -Recipient.
 
 .PARAMETER Cc
-    Optional CC recipients, same format as -To.
+    Optional CC recipients, same format as -To. Alias: -CopyTo.
 
 .PARAMETER Bcc
-    Optional BCC recipients, same format as -To.
+    Optional BCC recipients, same format as -To. Alias: -BlindCopyTo.
 
 .PARAMETER Subject
-    Mail subject.
+    Mail subject. Alias: -Title.
 
 .PARAMETER Body
-    Mail body text. Ignored if -BodyFile is given.
+    Mail body text. Ignored if -BodyFile is given. Alias: -Message.
 
 .PARAMETER BodyFile
     Path to a text file whose content becomes the mail body (blat.exe style
-    body-from-file).
+    body-from-file). Alias: -MessageFile.
 
 .PARAMETER Html
     Treat the body as HTML instead of plain text.
 
 .PARAMETER Attachment
-    One or more file paths to attach.
+    One or more file paths to attach. Alias: -Attach.
 
 .PARAMETER LogFile
     Optional path to append a timestamped log line for each send attempt.
+    Alias: -Log.
 
 .EXAMPLE
     .\Send-AcsMail.ps1 -CredentialPath .\acs-smtp.cred.xml `
@@ -92,16 +119,37 @@
         -Cc "manager@example.com" -Subject "Report" -BodyFile .\mailbody.txt `
         -Attachment ".\report.pdf", ".\log.txt" -LogFile .\mail.log
 
+.EXAMPLE
+    # Anonymous internal relay on port 25, no TLS, blat-style host:port
+    .\Send-AcsMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
+        -From "app@example.local" -To "ops@example.local" `
+        -Subject "Test" -Body "This is a test."
+
+.EXAMPLE
+    # Custom server with STARTTLS and credentials
+    .\Send-AcsMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
+        -CredentialPath .\mail.cred.xml `
+        -From "app@example.com" -To "ops@example.com" `
+        -Subject "Test" -Body "This is a test."
+
 .NOTES
     Author:  RaptileBytez
-    Version: 1.0.0
+    Version: 1.1.0
     Created: 2026-10-01
+    Modified: 2026-10-01
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'ClixmlFile')]
 param(
+    [Alias('MailServer')]
     [string]$SmtpServer = "smtp.azurecomm.net",
     [int]$Port = 587,
+
+    [ValidateSet('StartTls', 'None')]
+    [string]$TlsMode = 'StartTls',
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Anonymous')]
+    [switch]$NoAuth,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ClixmlFile')]
     [string]$CredentialPath,
@@ -116,31 +164,42 @@ param(
     [string]$UsernameSecretName,
 
     [Parameter(Mandatory = $true)]
+    [Alias('MailFrom')]
     [string]$From,
 
     [Parameter(Mandatory = $true)]
+    [Alias('Recipient')]
     [string[]]$To,
 
+    [Alias('CopyTo')]
     [string[]]$Cc,
+    [Alias('BlindCopyTo')]
     [string[]]$Bcc,
 
     [Parameter(Mandatory = $true)]
+    [Alias('Title')]
     [string]$Subject,
 
+    [Alias('Message')]
     [string]$Body,
+    [Alias('MessageFile')]
     [string]$BodyFile,
     [switch]$Html,
 
+    [Alias('Attach')]
     [string[]]$Attachment,
 
+    [Alias('Log')]
     [string]$LogFile
 )
 
 function Write-MailLog {
     param([string]$Message)
+    # Flatten line breaks so echoed input cannot forge extra log lines.
+    $Message = $Message -replace '[\r\n]+', ' '
     $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     if ($LogFile) {
-        try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch { }
+        try { Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8 } catch { }
     }
     Write-Verbose $line
 }
@@ -162,6 +221,39 @@ function ConvertFrom-SecureStringPlain {
     return [System.Net.NetworkCredential]::new('', $SecureString).Password
 }
 
+# --- Split "host:port" (blat style) when -Port was not given ----------------
+
+$SmtpServer = $SmtpServer.Trim()
+
+if ($SmtpServer.Split(':').Count -eq 2) {
+    if ($PSBoundParameters.ContainsKey('Port')) {
+        Write-MailLog "ERROR: port given twice: -SmtpServer '$SmtpServer' and -Port $Port"
+        Write-Error "Give the port either in -SmtpServer (host:port) or via -Port, not both."
+        exit 1
+    }
+    $serverParts = $SmtpServer.Split(':')
+    $portValue = 0
+    if (-not $serverParts[0] -or
+        $serverParts[1] -notmatch '^\d{1,5}$' -or
+        -not [int]::TryParse($serverParts[1], [ref]$portValue) -or
+        $portValue -lt 1 -or $portValue -gt 65535) {
+        Write-MailLog "ERROR: invalid host:port value: $SmtpServer"
+        Write-Error "Invalid -SmtpServer value '$SmtpServer': expected host:port with a numeric port from 1 to 65535."
+        exit 1
+    }
+    $SmtpServer = $serverParts[0]
+    $Port = $portValue
+}
+
+# --- Refuse clear-text authentication ----------------------------------------
+# Checked before any credential is loaded or decrypted.
+
+if ($TlsMode -eq 'None' -and $PSCmdlet.ParameterSetName -ne 'Anonymous') {
+    Write-MailLog "ERROR: -TlsMode None is not allowed with a credential (password would be sent in clear text)"
+    Write-Error "-TlsMode None cannot be combined with a credential because the password would be sent in clear text. Use STARTTLS (the default) or -NoAuth."
+    exit 1
+}
+
 # --- Resolve the SMTP credential from the selected back end ----------------
 
 $smtpUsername = $null
@@ -176,7 +268,7 @@ switch ($PSCmdlet.ParameterSetName) {
             exit 1
         }
         try {
-            $credential = Import-Clixml -Path $CredentialPath
+            $credential = Import-Clixml -LiteralPath $CredentialPath
             $smtpUsername = $credential.UserName
             $smtpPasswordSecure = $credential.Password
         }
@@ -206,6 +298,10 @@ switch ($PSCmdlet.ParameterSetName) {
             Write-Error "Could not read secrets from Key Vault '$VaultName'. Check that you are authenticated (Connect-AzAccount / managed identity) and have 'get' permission on secrets '$SecretName' and '$UsernameSecretName'."
             exit 1
         }
+    }
+
+    'Anonymous' {
+        # No credential is loaded; the message is sent unauthenticated.
     }
 }
 
@@ -251,7 +347,14 @@ $smtp = $null
 $attachmentObjects = @()
 
 try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    if ($TlsMode -eq 'StartTls') {
+        # TLS 1.2 always; add TLS 1.3 only where the platform defines it.
+        $tlsProtocols = [Net.SecurityProtocolType]::Tls12
+        if ([Enum]::GetNames([Net.SecurityProtocolType]) -contains 'Tls13') {
+            $tlsProtocols = $tlsProtocols -bor [Net.SecurityProtocolType]::Tls13
+        }
+        [Net.ServicePointManager]::SecurityProtocol = $tlsProtocols
+    }
 
     $mail = New-Object System.Net.Mail.MailMessage
     $mail.From = $From
@@ -269,11 +372,17 @@ try {
     }
 
     $smtp = New-Object System.Net.Mail.SmtpClient($SmtpServer, $Port)
-    $smtp.EnableSsl   = $true
-    $smtp.Credentials = New-Object System.Net.NetworkCredential(
-        $smtpUsername,
-        (ConvertFrom-SecureStringPlain -SecureString $smtpPasswordSecure)
-    )
+    $smtp.EnableSsl = ($TlsMode -eq 'StartTls')
+    if ($PSCmdlet.ParameterSetName -eq 'Anonymous') {
+        $smtp.UseDefaultCredentials = $false
+        $smtp.Credentials = $null
+    }
+    else {
+        $smtp.Credentials = New-Object System.Net.NetworkCredential(
+            $smtpUsername,
+            (ConvertFrom-SecureStringPlain -SecureString $smtpPasswordSecure)
+        )
+    }
 
     $smtp.Send($mail)
 

@@ -1,8 +1,9 @@
 # ACS SMTP Mailer — blat.exe replacement
 
 PowerShell scripts for sending email through **Azure Communication
-Services (ACS) SMTP relay**, written as a drop-in-style replacement for
-`blat.exe` in batch files and scheduled tasks. Credentials are never
+Services (ACS) SMTP relay** (default) or any other SMTP server, written as
+a drop-in-style replacement for `blat.exe` in batch files and scheduled
+tasks. Credentials are never
 hard-coded or stored in plain text; two interchangeable storage back ends
 are supported.
 
@@ -38,14 +39,21 @@ original script assumed:
    **client secret** (from step 2). These are what `Set-AcsSmtpSecret.ps1`
    stores — never the raw application/client ID.
 
-Server/port for all scripts here: `smtp.azurecomm.net`, port `587`,
-STARTTLS (`EnableSsl = $true`). TLS 1.2 is enforced explicitly in the
-script.
+Default server/port for `Send-AcsMail.ps1`: `smtp.azurecomm.net`, port
+`587`, STARTTLS (`EnableSsl = $true`). Only TLS 1.2 or TLS 1.3 is
+allowed (1.3 only when the .NET runtime supports it); the script sets this
+process-wide for the PowerShell session it runs in. Any other
+SMTP server can be used with `-SmtpServer`, `-Port`, `-TlsMode` and
+`-NoAuth` (see section 4). Implicit TLS (SMTPS, port 465) is not
+supported, because `System.Net.Mail` cannot do it; ACS itself only offers
+587 and 25 with STARTTLS.
 
 ## 2. Choosing a credential storage back end
 
 Both scripts support two mutually exclusive modes, selected by which
-parameters you pass (PowerShell parameter sets):
+parameters you pass (PowerShell parameter sets). `Send-AcsMail.ps1`
+additionally has a third, credential-free `Anonymous` mode (`-NoAuth`,
+see section 4):
 
 ### Option A — `ClixmlFile` (local, no extra dependencies)
 
@@ -166,26 +174,98 @@ Comma-separated address strings also work (useful when called from a
     -Subject "Test" -Body "Test"
 ```
 
+### Using any other SMTP server
+
+```powershell
+# Anonymous internal relay on port 25, no TLS, blat-style host:port
+.\Send-AcsMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
+    -From "app@example.local" -To "ops@example.local" `
+    -Subject "Test" -Body "This is a test."
+
+# Custom server with STARTTLS and credentials
+.\Send-AcsMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
+    -CredentialPath .\mail.cred.xml `
+    -From "app@example.com" -To "ops@example.com" `
+    -Subject "Test" -Body "This is a test."
+```
+
+- `-NoAuth` is its own parameter set and cannot be combined with
+  `-CredentialPath`, `-VaultName`, `-SecretName` or `-UsernameSecretName`
+  (PowerShell rejects the call).
+- `-TlsMode None` is only allowed together with `-NoAuth`. Combined with
+  `-CredentialPath` or `-VaultName`/`-SecretName` the script exits with
+  `1` before loading any credential, because the password would travel
+  in clear text. There is no override switch.
+- Credentials created with `Set-AcsSmtpSecret.ps1` are ACS credentials.
+  Do not point them at other servers via `-SmtpServer`; the server would
+  receive your ACS SMTP username and client secret.
+- `-SmtpServer host:port` (surrounding whitespace is trimmed) is split into
+  host and port. The port must be numeric, from 1 to 65535, otherwise the
+  script exits with `1`. Giving a `host:port` value together with an
+  explicit `-Port` is an error (exit `1`): give the port in one place only.
+  Values with more than one `:` (IPv6 literals) are not parsed; use
+  `-Port` for them.
+- If the server presents a certificate from a private CA or a self-signed
+  one, install that certificate in the Windows certificate store of the
+  sending machine. There is deliberately no switch to skip certificate
+  validation.
+
+### Migrating from `blat.exe`
+
+| blat | `Send-AcsMail.ps1` |
+|---|---|
+| `-server host[:port]` | `-SmtpServer host[:port]` (or `-SmtpServer host -Port n`) |
+| `-f` / `-t` / `-cc` / `-bcc` | `-From` / `-To` / `-Cc` / `-Bcc` (aliases `-MailFrom`, `-Recipient`, `-CopyTo`, `-BlindCopyTo`) |
+| `-subject` / `-body` / `-bodyF` | `-Subject` / `-Body` / `-BodyFile` (aliases `-Title`, `-Message`, `-MessageFile`) |
+| `-attach` / `-log` | `-Attachment` / `-LogFile` (aliases `-Attach`, `-Log`) |
+| no `-u` / `-pw` (anonymous) | `-NoAuth` |
+| `-u` / `-pw` | `-CredentialPath` or `-VaultName` / `-SecretName` (the password is never passed on the command line) |
+
+The script is blat-inspired, not a drop-in clone: blat's single-letter
+flags are not supported. Parameter abbreviations: `-T` no longer resolves
+to `-To` (it is ambiguous with `-TlsMode` and `-Title`), so always write
+`-To` in full.
+
+### Parameter aliases
+
+Existing parameter names stay the primary names. The aliases are
+alternatives with clearer names:
+
+| Parameter | Alias |
+|---|---|
+| `-SmtpServer` | `-MailServer` |
+| `-From` | `-MailFrom` |
+| `-To` | `-Recipient` |
+| `-Cc` | `-CopyTo` |
+| `-Bcc` | `-BlindCopyTo` |
+| `-Subject` | `-Title` |
+| `-Body` | `-Message` |
+| `-BodyFile` | `-MessageFile` |
+| `-Attachment` | `-Attach` |
+| `-LogFile` | `-Log` |
+
 ### Parameters
 
 | Parameter | Set | Required | Description |
 |---|---|---|---|
-| `-SmtpServer` | both | no | Default `smtp.azurecomm.net`. |
-| `-Port` | both | no | Default `587`. |
+| `-SmtpServer` | all | no | Default `smtp.azurecomm.net`. Accepts `host:port` (surrounding whitespace is trimmed); giving a port both here and via `-Port` is an error (exit 1). |
+| `-Port` | all | no | Default `587`. |
+| `-TlsMode` | all | no | `StartTls` (default) or `None` (plain SMTP). `None` is rejected (exit `1`) in combination with a credential; use it only with `-NoAuth`. |
+| `-NoAuth` | Anonymous | yes | Switch: send without authentication. Cannot be combined with the ClixmlFile/KeyVault parameters. |
 | `-CredentialPath` | ClixmlFile | yes | Path to the encrypted credential file. |
 | `-VaultName` | KeyVault | yes | Azure Key Vault name. |
 | `-SecretName` | KeyVault | yes | Secret name for the client secret/password. |
 | `-UsernameSecretName` | KeyVault | no | Secret name for the username. Default: `<SecretName>-Username`. |
-| `-From` | both | yes | Sender address. |
-| `-To` | both | yes | One or more recipients (array or comma-separated string). |
-| `-Cc` | both | no | Same format as `-To`. |
-| `-Bcc` | both | no | Same format as `-To`. |
-| `-Subject` | both | yes | Mail subject. |
-| `-Body` | both | no | Inline body text. Ignored if `-BodyFile` is given. |
-| `-BodyFile` | both | no | Path to a text file used as the body (blat.exe-style). |
-| `-Html` | both | no | Switch: treat the body as HTML. |
-| `-Attachment` | both | no | One or more file paths to attach. |
-| `-LogFile` | both | no | Path to append a timestamped line per send attempt. |
+| `-From` | all | yes | Sender address. |
+| `-To` | all | yes | One or more recipients (array or comma-separated string). |
+| `-Cc` | all | no | Same format as `-To`. |
+| `-Bcc` | all | no | Same format as `-To`. |
+| `-Subject` | all | yes | Mail subject. |
+| `-Body` | all | no | Inline body text. Ignored if `-BodyFile` is given. |
+| `-BodyFile` | all | no | Path to a text file used as the body (blat.exe-style). |
+| `-Html` | all | no | Switch: treat the body as HTML. |
+| `-Attachment` | all | no | One or more file paths to attach. |
+| `-LogFile` | all | no | Path to append a timestamped line per send attempt. |
 
 ### Exit codes (for batch files / scheduled tasks)
 
@@ -208,9 +288,16 @@ if %ERRORLEVEL% neq 0 (
 - **At rest:** the client secret is never embedded in script source. It
   lives either DPAPI-encrypted in a file scoped to one user+machine, or
   in Azure Key Vault with its own access control and audit log.
-- **In transit:** STARTTLS on port 587 (`EnableSsl = $true`, TLS 1.2
-  enforced) encrypts the SMTP session itself — this was already correct
-  in the original script.
+- **In transit:** STARTTLS on port 587 (`EnableSsl = $true`, TLS 1.2 or
+  TLS 1.3 only, set process-wide for the PowerShell session) encrypts the
+  SMTP session itself — this was already correct in the original script.
+  With `-TlsMode None` nothing is encrypted and message content is
+  readable on the network. To protect the password, the script refuses
+  `-TlsMode None` in combination with a credential (exit `1`, before any
+  credential is loaded); it is only accepted with `-NoAuth`, and should
+  be used only on trusted internal networks. Older protocols (SSL 3.0,
+  TLS 1.0, TLS 1.1) are never enabled, and server certificates are always
+  validated.
 - **In memory:** the password is kept as a `SecureString` for as long as
   possible and only converted to a plain string at the point
   `System.Net.NetworkCredential` requires it (a limitation of
@@ -234,4 +321,9 @@ if %ERRORLEVEL% neq 0 (
 | `Could not decrypt the credential file` | The `.cred.xml` file was copied to another machine or is being read under a different user account than the one that created it. Re-run `Set-AcsSmtpSecret.ps1` on that machine/account. |
 | `Could not read secrets from Key Vault` | No authenticated Az session in the current process, or the identity lacks `get` permission on the secrets. Run `Connect-AzAccount` (or verify the managed identity/service principal) and check the vault's access policy/RBAC. |
 | `Az.KeyVault module not installed` | Run `Install-Module Az.KeyVault -Scope CurrentUser`. |
+| `Server does not support secure connections` | The target server does not offer STARTTLS on that port (typical for internal relays on port 25). Use a port that offers STARTTLS, or, for an anonymous internal relay, `-TlsMode None -NoAuth`. |
+| `-TlsMode None cannot be combined with a credential` | Plain SMTP would send the password in clear text. Use STARTTLS (the default) or `-NoAuth`. |
+| `Invalid -SmtpServer value` | A `host:port` value with a non-numeric or out-of-range port. Fix the value or pass `-Port` separately. |
+| `Give the port either in -SmtpServer` | Both `host:port` and `-Port` were given. Use only one. |
+| `Parameter set cannot be resolved` | `-NoAuth` was combined with `-CredentialPath`, `-VaultName` or other credential parameters. Use one or the other. |
 | Attachment/body-file errors | Path is checked with `Test-Path` before sending; verify the path is correct relative to the working directory the script runs from (e.g. a scheduled task's working directory is not always what you expect). |

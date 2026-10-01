@@ -50,8 +50,9 @@
 
 .NOTES
     Author:  RaptileBytez
-    Version: 1.0.0
+    Version: 1.0.1
     Created: 2026-10-01
+    Modified: 2026-10-01
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'ClixmlFile')]
@@ -84,7 +85,7 @@ switch ($PSCmdlet.ParameterSetName) {
     'ClixmlFile' {
         $credential = New-Object System.Management.Automation.PSCredential($Username, $securePassword)
         try {
-            $credential | Export-Clixml -Path $Path -Force
+            $credential | Export-Clixml -LiteralPath $Path -Force
             Write-Host "Credential saved to '$Path'." -ForegroundColor Green
             Write-Host "This file can only be decrypted by the current Windows user account on this machine." -ForegroundColor Yellow
             exit 0
