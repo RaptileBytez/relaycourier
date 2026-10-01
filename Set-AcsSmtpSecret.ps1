@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Stores the Azure Communication Services (ACS) SMTP credential (SMTP
+    RelayCourier setup: stores the Azure Communication Services (ACS) SMTP credential (SMTP
     username + Entra application client secret) for later use by
     Send-AcsMail.ps1.
 
@@ -49,6 +49,7 @@
     .\Set-AcsSmtpSecret.ps1 -Username "<SMTP Username>" -VaultName "my-vault" -SecretName "acs-smtp-secret"
 
 .NOTES
+    Product: RelayCourier
     Author:  RaptileBytez
     Version: 1.0.1
     Created: 2026-10-01

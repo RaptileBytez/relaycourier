@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    Dynamic blat.exe replacement that sends mail through Azure Communication
-    Services (ACS) SMTP relay by default, or through any SMTP server via
-    -SmtpServer / -Port / -TlsMode / -NoAuth.
+    RelayCourier: send mail from scripts and scheduled tasks through Azure
+    Communication Services (ACS) SMTP relay by default, or through any SMTP
+    server via -SmtpServer / -Port / -TlsMode / -NoAuth.
 
 .DESCRIPTION
     Sends an email via ACS SMTP (smtp.azurecomm.net:587, STARTTLS) by default.
@@ -133,6 +133,7 @@
         -Subject "Test" -Body "This is a test."
 
 .NOTES
+    Product: RelayCourier
     Author:  RaptileBytez
     Version: 1.1.0
     Created: 2026-10-01

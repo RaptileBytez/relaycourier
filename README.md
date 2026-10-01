@@ -1,9 +1,13 @@
-# ACS SMTP Mailer — blat.exe replacement
+# RelayCourier
 
-PowerShell scripts for sending email through **Azure Communication
-Services (ACS) SMTP relay** (default) or any other SMTP server, written as
-a drop-in-style replacement for `blat.exe` in batch files and scheduled
-tasks. Credentials are never
+**Send mail from scripts and scheduled tasks through any SMTP relay, with
+secure credential storage.**
+
+RelayCourier is a pair of PowerShell scripts that send email through the
+**Azure Communication Services (ACS) SMTP relay** (default) or any other
+SMTP server, with or without authentication. They are built for batch files
+and scheduled tasks (including as a replacement for `blat.exe`; see the
+migration notes below), with predictable exit codes. Credentials are never
 hard-coded or stored in plain text; two interchangeable storage back ends
 are supported.
 
