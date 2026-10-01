@@ -15,8 +15,8 @@ are supported.
 
 | File | Purpose |
 |---|---|
-| `Set-AcsSmtpSecret.ps1` | One-time setup: stores the SMTP credential (encrypted file **or** Azure Key Vault). |
-| `Send-AcsMail.ps1` | Sends an email. Mirrors the parameters you'd pass to `blat.exe` (from, to, subject, body, attachments, …). |
+| `Set-RelayCredential.ps1` | One-time setup: stores the SMTP credential (encrypted file **or** Azure Key Vault). |
+| `Send-RelayMail.ps1` | Sends an email. Mirrors the parameters you'd pass to `blat.exe` (from, to, subject, body, attachments, …). |
 
 ## 1. Background: what the credential actually is
 
@@ -40,10 +40,10 @@ original script assumed:
 4. In the ACS resource, under **SMTP Username**, create a new SMTP
    username and link it to that Entra application.
 5. You now have two values: the **SMTP Username** (from step 4) and the
-   **client secret** (from step 2). These are what `Set-AcsSmtpSecret.ps1`
+   **client secret** (from step 2). These are what `Set-RelayCredential.ps1`
    stores — never the raw application/client ID.
 
-Default server/port for `Send-AcsMail.ps1`: `smtp.azurecomm.net`, port
+Default server/port for `Send-RelayMail.ps1`: `smtp.azurecomm.net`, port
 `587`, STARTTLS (`EnableSsl = $true`). Only TLS 1.2 or TLS 1.3 is
 allowed (1.3 only when the .NET runtime supports it); the script sets this
 process-wide for the PowerShell session it runs in. Any other
@@ -55,7 +55,7 @@ supported, because `System.Net.Mail` cannot do it; ACS itself only offers
 ## 2. Choosing a credential storage back end
 
 Both scripts support two mutually exclusive modes, selected by which
-parameters you pass (PowerShell parameter sets). `Send-AcsMail.ps1`
+parameters you pass (PowerShell parameter sets). `Send-RelayMail.ps1`
 additionally has a third, credential-free `Anonymous` mode (`-NoAuth`,
 see section 4):
 
@@ -97,7 +97,7 @@ You can set up and use **both** at the same time (e.g. a local file for a
 workstation, Key Vault for production servers) — the two scripts simply
 treat them as alternative parameter sets.
 
-## 3. `Set-AcsSmtpSecret.ps1` — one-time setup
+## 3. `Set-RelayCredential.ps1` — one-time setup
 
 The client secret is always entered interactively
 (`Read-Host -AsSecureString`); it is never written to the script, to
@@ -106,7 +106,7 @@ console output, or to any file in plain text.
 ### Store in a local encrypted file
 
 ```powershell
-.\Set-AcsSmtpSecret.ps1 -Username "<SMTP Username>" -Path .\acs-smtp.cred.xml
+.\Set-RelayCredential.ps1 -Username "<SMTP Username>" -Path .\relaycourier.cred.xml
 ```
 
 Run this once per Windows user account and machine that will send mail.
@@ -118,12 +118,12 @@ machine the task will run on.
 
 ```powershell
 Connect-AzAccount                      # or rely on an existing managed-identity/service-principal context
-.\Set-AcsSmtpSecret.ps1 -Username "<SMTP Username>" `
-    -VaultName "my-vault" -SecretName "acs-smtp-secret"
+.\Set-RelayCredential.ps1 -Username "<SMTP Username>" `
+    -VaultName "my-vault" -SecretName "relaycourier-secret"
 ```
 
-This creates two secrets in the vault: `acs-smtp-secret` (the client
-secret/password) and `acs-smtp-secret-Username` (the SMTP username). The
+This creates two secrets in the vault: `relaycourier-secret` (the client
+secret/password) and `relaycourier-secret-Username` (the SMTP username). The
 username secret name can be overridden with `-UsernameSecretName`.
 
 ### Parameters
@@ -138,12 +138,12 @@ username secret name can be overridden with `-UsernameSecretName`.
 
 Exit code: `0` on success, `1` on failure.
 
-## 4. `Send-AcsMail.ps1` — sending mail
+## 4. `Send-RelayMail.ps1` — sending mail
 
 ### Using the local encrypted file
 
 ```powershell
-.\Send-AcsMail.ps1 -CredentialPath .\acs-smtp.cred.xml `
+.\Send-RelayMail.ps1 -CredentialPath .\relaycourier.cred.xml `
     -From "noreply@example.com" -To "user@example.com" `
     -Subject "Test" -Body "This is a test."
 ```
@@ -151,7 +151,7 @@ Exit code: `0` on success, `1` on failure.
 ### Using Azure Key Vault
 
 ```powershell
-.\Send-AcsMail.ps1 -VaultName "my-vault" -SecretName "acs-smtp-secret" `
+.\Send-RelayMail.ps1 -VaultName "my-vault" -SecretName "relaycourier-secret" `
     -From "noreply@example.com" -To "user@example.com" `
     -Subject "Test" -Body "This is a test."
 ```
@@ -159,7 +159,7 @@ Exit code: `0` on success, `1` on failure.
 ### Full example: multiple recipients, CC, body file, attachments, log
 
 ```powershell
-.\Send-AcsMail.ps1 -CredentialPath .\acs-smtp.cred.xml `
+.\Send-RelayMail.ps1 -CredentialPath .\relaycourier.cred.xml `
     -From "noreply@example.com" `
     -To "a@example.com","b@example.com" `
     -Cc "manager@example.com" `
@@ -173,7 +173,7 @@ Comma-separated address strings also work (useful when called from a
 `.cmd`/`.bat` file where building a PowerShell array is awkward):
 
 ```powershell
-.\Send-AcsMail.ps1 -CredentialPath .\acs-smtp.cred.xml `
+.\Send-RelayMail.ps1 -CredentialPath .\relaycourier.cred.xml `
     -From "noreply@example.com" -To "a@example.com,b@example.com" `
     -Subject "Test" -Body "Test"
 ```
@@ -182,12 +182,12 @@ Comma-separated address strings also work (useful when called from a
 
 ```powershell
 # Anonymous internal relay on port 25, no TLS, blat-style host:port
-.\Send-AcsMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
+.\Send-RelayMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
     -From "app@example.local" -To "ops@example.local" `
     -Subject "Test" -Body "This is a test."
 
 # Custom server with STARTTLS and credentials
-.\Send-AcsMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
+.\Send-RelayMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
     -CredentialPath .\mail.cred.xml `
     -From "app@example.com" -To "ops@example.com" `
     -Subject "Test" -Body "This is a test."
@@ -200,7 +200,7 @@ Comma-separated address strings also work (useful when called from a
   `-CredentialPath` or `-VaultName`/`-SecretName` the script exits with
   `1` before loading any credential, because the password would travel
   in clear text. There is no override switch.
-- Credentials created with `Set-AcsSmtpSecret.ps1` are ACS credentials.
+- Credentials created with `Set-RelayCredential.ps1` are ACS credentials.
   Do not point them at other servers via `-SmtpServer`; the server would
   receive your ACS SMTP username and client secret.
 - `-SmtpServer host:port` (surrounding whitespace is trimmed) is split into
@@ -216,7 +216,7 @@ Comma-separated address strings also work (useful when called from a
 
 ### Migrating from `blat.exe`
 
-| blat | `Send-AcsMail.ps1` |
+| blat | `Send-RelayMail.ps1` |
 |---|---|
 | `-server host[:port]` | `-SmtpServer host[:port]` (or `-SmtpServer host -Port n`) |
 | `-f` / `-t` / `-cc` / `-bcc` | `-From` / `-To` / `-Cc` / `-Bcc` (aliases `-MailFrom`, `-Recipient`, `-CopyTo`, `-BlindCopyTo`) |
@@ -281,7 +281,7 @@ alternatives with clearer names:
 Example batch-file check, same pattern as with `blat.exe`:
 
 ```bat
-powershell -NoProfile -File Send-AcsMail.ps1 -CredentialPath acs-smtp.cred.xml -From ... -To ... -Subject ... -Body ...
+powershell -NoProfile -File Send-RelayMail.ps1 -CredentialPath relaycourier.cred.xml -From ... -To ... -Subject ... -Body ...
 if %ERRORLEVEL% neq 0 (
     echo Mail send failed
 )
@@ -307,7 +307,7 @@ if %ERRORLEVEL% neq 0 (
   `System.Net.NetworkCredential` requires it (a limitation of
   `System.Net.Mail`, which has no `SecureString`-based credential type).
 - Rotating the client secret: generate a new secret in Entra ID, then
-  re-run `Set-AcsSmtpSecret.ps1` (either back end) with the new value —
+  re-run `Set-RelayCredential.ps1` (either back end) with the new value —
   no script changes needed.
 - `System.Net.Mail` (used here for attachment support and parity with
   the original script) is marked legacy by Microsoft in favor of
@@ -322,7 +322,7 @@ if %ERRORLEVEL% neq 0 (
 | Symptom | Likely cause |
 |---|---|
 | `5.7.3 Authentication unsuccessful` | Username is the Entra client ID instead of the ACS "SMTP Username", or the client secret expired/was rotated. |
-| `Could not decrypt the credential file` | The `.cred.xml` file was copied to another machine or is being read under a different user account than the one that created it. Re-run `Set-AcsSmtpSecret.ps1` on that machine/account. |
+| `Could not decrypt the credential file` | The `.cred.xml` file was copied to another machine or is being read under a different user account than the one that created it. Re-run `Set-RelayCredential.ps1` on that machine/account. |
 | `Could not read secrets from Key Vault` | No authenticated Az session in the current process, or the identity lacks `get` permission on the secrets. Run `Connect-AzAccount` (or verify the managed identity/service principal) and check the vault's access policy/RBAC. |
 | `Az.KeyVault module not installed` | Run `Install-Module Az.KeyVault -Scope CurrentUser`. |
 | `Server does not support secure connections` | The target server does not offer STARTTLS on that port (typical for internal relays on port 25). Use a port that offers STARTTLS, or, for an anonymous internal relay, `-TlsMode None -NoAuth`. |

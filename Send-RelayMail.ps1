@@ -13,16 +13,16 @@
     the credential is never stored in plain text inside this script.
 
     Three authentication modes are supported, chosen by which parameter set
-    you use (credentials are created with Set-AcsSmtpSecret.ps1):
+    you use (credentials are created with Set-RelayCredential.ps1):
 
       ClixmlFile  -CredentialPath <file>
                   Reads a DPAPI-encrypted credential file created with
-                  Set-AcsSmtpSecret.ps1 (ClixmlFile mode). Only readable by
+                  Set-RelayCredential.ps1 (ClixmlFile mode). Only readable by
                   the same Windows user account on the same machine.
 
       KeyVault    -VaultName <vault> -SecretName <secret> [-UsernameSecretName <secret>]
                   Reads the SMTP username and client secret from an Azure
-                  Key Vault created with Set-AcsSmtpSecret.ps1 (KeyVault
+                  Key Vault created with Set-RelayCredential.ps1 (KeyVault
                   mode). Requires the Az.KeyVault module and an already
                   authenticated Az session in the current process
                   (Connect-AzAccount, a managed identity, or a service
@@ -109,25 +109,25 @@
     Alias: -Log.
 
 .EXAMPLE
-    .\Send-AcsMail.ps1 -CredentialPath .\acs-smtp.cred.xml `
+    .\Send-RelayMail.ps1 -CredentialPath .\relaycourier.cred.xml `
         -From "noreply@example.com" -To "user@example.com" `
         -Subject "Test" -Body "This is a test."
 
 .EXAMPLE
-    .\Send-AcsMail.ps1 -VaultName "my-vault" -SecretName "acs-smtp-secret" `
+    .\Send-RelayMail.ps1 -VaultName "my-vault" -SecretName "relaycourier-secret" `
         -From "noreply@example.com" -To "a@example.com","b@example.com" `
         -Cc "manager@example.com" -Subject "Report" -BodyFile .\mailbody.txt `
         -Attachment ".\report.pdf", ".\log.txt" -LogFile .\mail.log
 
 .EXAMPLE
     # Anonymous internal relay on port 25, no TLS, blat-style host:port
-    .\Send-AcsMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
+    .\Send-RelayMail.ps1 -SmtpServer "smtp.example.local:25" -TlsMode None -NoAuth `
         -From "app@example.local" -To "ops@example.local" `
         -Subject "Test" -Body "This is a test."
 
 .EXAMPLE
     # Custom server with STARTTLS and credentials
-    .\Send-AcsMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
+    .\Send-RelayMail.ps1 -SmtpServer "mail.example.com" -Port 587 `
         -CredentialPath .\mail.cred.xml `
         -From "app@example.com" -To "ops@example.com" `
         -Subject "Test" -Body "This is a test."
@@ -265,7 +265,7 @@ switch ($PSCmdlet.ParameterSetName) {
     'ClixmlFile' {
         if (-not (Test-Path -LiteralPath $CredentialPath)) {
             Write-MailLog "ERROR: credential file not found: $CredentialPath"
-            Write-Error "Credential file not found: $CredentialPath. Run Set-AcsSmtpSecret.ps1 first."
+            Write-Error "Credential file not found: $CredentialPath. Run Set-RelayCredential.ps1 first."
             exit 1
         }
         try {
@@ -275,7 +275,7 @@ switch ($PSCmdlet.ParameterSetName) {
         }
         catch {
             Write-MailLog "ERROR: could not decrypt credential file: $($_.Exception.Message)"
-            Write-Error "Could not decrypt the credential file. It is bound to the user account and machine it was created on - re-run Set-AcsSmtpSecret.ps1 there if needed."
+            Write-Error "Could not decrypt the credential file. It is bound to the user account and machine it was created on - re-run Set-RelayCredential.ps1 there if needed."
             exit 1
         }
     }
