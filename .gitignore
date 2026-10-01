@@ -1,0 +1,5 @@
+# Encrypted credential files (bound to user + machine)
+*.cred.xml
+
+# Mail send logs
+*.log
