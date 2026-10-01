@@ -51,7 +51,7 @@
 .NOTES
     Product: RelayCourier
     Author:  RaptileBytez
-    Version: 1.0.1
+    Version: 1.1.0
     Created: 2026-10-01
     Modified: 2026-10-01
 #>
