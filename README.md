@@ -331,3 +331,7 @@ if %ERRORLEVEL% neq 0 (
 | `Give the port either in -SmtpServer` | Both `host:port` and `-Port` were given. Use only one. |
 | `Parameter set cannot be resolved` | `-NoAuth` was combined with `-CredentialPath`, `-VaultName` or other credential parameters. Use one or the other. |
 | Attachment/body-file errors | Path is checked with `Test-Path` before sending; verify the path is correct relative to the working directory the script runs from (e.g. a scheduled task's working directory is not always what you expect). |
+
+## 7. License
+
+MIT, see [LICENSE](LICENSE).
